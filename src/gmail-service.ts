@@ -5,6 +5,14 @@ import { OAuth2Client } from "google-auth-library";
 import { type gmail_v1, google } from "googleapis";
 import { AccountStorage } from "./account-storage.js";
 import { GmailOAuthFlow } from "./gmail-oauth-flow.js";
+import {
+	filterSelfFromRecipients,
+	formatGmailQuote,
+	formatHtmlReplyBody,
+	formatReplySubject,
+	parseEmailAddress,
+	parseEmailList,
+} from "./reply-utils.js";
 import type { EmailAccount } from "./types.js";
 
 type GmailMessage = gmail_v1.Schema$Message;
@@ -357,6 +365,8 @@ export class GmailService {
 			threadId?: string;
 			replyToMessageId?: string;
 			attachments?: string[];
+			replyAll?: boolean;
+			includeQuote?: boolean;
 		} = {},
 	): Promise<GmailDraft> {
 		const gmail = this.getGmailClient(email);
@@ -364,41 +374,71 @@ export class GmailService {
 		let inReplyTo: string | undefined;
 		let references: string | undefined;
 		let threadId = options.threadId;
+		let replyData: Awaited<ReturnType<typeof this.getMessageForReply>> | undefined;
+		const originalBody = body; // Keep original reply text for HTML generation
 
-		// If replying to a specific message, fetch its headers
+		// Use local variables to avoid parameter reassignment
+		let recipientList = to;
+		let subjectLine = subject;
+		let bodyText = body;
+
+		// If replying to a specific message, use getMessageForReply for auto-fill
 		if (options.replyToMessageId) {
-			const msg = await gmail.users.messages.get({
-				userId: "me",
-				id: options.replyToMessageId,
-				format: "metadata",
-				metadataHeaders: ["Message-ID", "References"],
-			});
-			const headers = msg.data.payload?.headers || [];
-			const messageId = headers.find((h: any) => h.name === "Message-ID")?.value;
-			const existingRefs = headers.find((h: any) => h.name === "References")?.value;
+			replyData = await this.getMessageForReply(email, options.replyToMessageId);
 
-			if (messageId) {
-				inReplyTo = messageId;
-				references = existingRefs ? `${existingRefs} ${messageId}` : messageId;
+			// Auto-fill To if not provided
+			if (!recipientList || recipientList.length === 0 || (recipientList.length === 1 && !recipientList[0])) {
+				const senderEmail = parseEmailAddress(replyData.from).email;
+				recipientList = [senderEmail];
+
+				if (options.replyAll) {
+					// Add original To + Cc (minus self) to Cc
+					const allRecipients = [...replyData.to, ...replyData.cc];
+					const filtered = filterSelfFromRecipients(allRecipients, email);
+					options.cc = [...(options.cc || []), ...filtered];
+				}
 			}
-			threadId = threadId || msg.data.threadId;
+
+			// Auto-fill subject if not provided
+			if (!subjectLine) {
+				subjectLine = formatReplySubject(replyData.subject);
+			}
+
+			// Append quoted text to plain text body if includeQuote !== false
+			if (options.includeQuote !== false) {
+				bodyText = bodyText + formatGmailQuote(replyData.date, replyData.from, replyData.body);
+			}
+
+			inReplyTo = replyData.inReplyTo;
+			references = replyData.references;
+			threadId = replyData.threadId;
 		}
 
 		const hasAttachments = options.attachments && options.attachments.length > 0;
+		const hasHtmlQuote = replyData && options.includeQuote !== false;
 		const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+		const altBoundary = `alt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+		// Determine content type based on attachments and HTML quote
+		let contentType: string;
+		if (hasAttachments) {
+			contentType = `multipart/mixed; boundary="${boundary}"`;
+		} else if (hasHtmlQuote) {
+			contentType = `multipart/alternative; boundary="${altBoundary}"`;
+		} else {
+			contentType = "text/plain; charset=UTF-8";
+		}
 
 		const headers = [
 			`From: ${email}`,
-			`To: ${to.join(", ")}`,
+			`To: ${recipientList.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${subjectLine}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
-			hasAttachments
-				? `Content-Type: multipart/mixed; boundary="${boundary}"`
-				: "Content-Type: text/plain; charset=UTF-8",
+			`Content-Type: ${contentType}`,
 		].filter(Boolean);
 
 		let emailContent: string;
@@ -406,8 +446,30 @@ export class GmailService {
 		if (hasAttachments) {
 			const parts: string[] = [];
 
-			// Text body part
-			parts.push(`--${boundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + body);
+			if (hasHtmlQuote) {
+				// Multipart/alternative inside multipart/mixed
+				const htmlBody = formatHtmlReplyBody(
+					originalBody,
+					replyData!.date,
+					replyData!.from,
+					replyData!.body,
+					replyData!.htmlBody,
+				);
+				parts.push(
+					`--${boundary}\r\n` +
+						`Content-Type: multipart/alternative; boundary="${altBoundary}"\r\n\r\n` +
+						`--${altBoundary}\r\n` +
+						"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
+						bodyText +
+						`\r\n--${altBoundary}\r\n` +
+						"Content-Type: text/html; charset=UTF-8\r\n\r\n" +
+						htmlBody +
+						`\r\n--${altBoundary}--`,
+				);
+			} else {
+				// Text body part only
+				parts.push(`--${boundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + bodyText);
+			}
 
 			// Attachment parts
 			for (const filePath of options.attachments!) {
@@ -426,8 +488,22 @@ export class GmailService {
 			}
 
 			emailContent = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n") + `\r\n--${boundary}--`;
+		} else if (hasHtmlQuote) {
+			// Multipart/alternative with text and HTML
+			const htmlBody = formatHtmlReplyBody(
+				originalBody,
+				replyData!.date,
+				replyData!.from,
+				replyData!.body,
+				replyData!.htmlBody,
+			);
+			const parts = [
+				`--${altBoundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + bodyText,
+				`--${altBoundary}\r\n` + "Content-Type: text/html; charset=UTF-8\r\n\r\n" + htmlBody,
+			];
+			emailContent = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n") + `\r\n--${altBoundary}--`;
 		} else {
-			emailContent = headers.join("\r\n") + "\r\n\r\n" + body;
+			emailContent = headers.join("\r\n") + "\r\n\r\n" + bodyText;
 		}
 
 		const encodedEmail = Buffer.from(emailContent).toString("base64url");
@@ -493,6 +569,122 @@ export class GmailService {
 		return response.data;
 	}
 
+	async getMessageForReply(
+		email: string,
+		messageOrThreadId: string,
+	): Promise<{
+		messageId: string;
+		threadId: string;
+		from: string;
+		to: string[];
+		cc: string[];
+		subject: string;
+		date: string;
+		body: string;
+		htmlBody: string;
+		inReplyTo: string;
+		references: string;
+	}> {
+		const gmail = this.getGmailClient(email);
+
+		let messageIdToFetch = messageOrThreadId;
+
+		// Try to get as a thread first to get the LAST message (for proper reply threading)
+		// This is important because thread IDs are often the same as the first message ID
+		try {
+			const thread = await gmail.users.threads.get({
+				userId: "me",
+				id: messageOrThreadId,
+				format: "minimal",
+			});
+			if (thread.data.messages && thread.data.messages.length > 0) {
+				// Use the last message in the thread
+				messageIdToFetch = thread.data.messages[thread.data.messages.length - 1].id!;
+			}
+		} catch {
+			// Not a thread ID - treat as a direct message ID
+			messageIdToFetch = messageOrThreadId;
+		}
+
+		// Fetch the message with full format to get body
+		const msg = await gmail.users.messages.get({
+			userId: "me",
+			id: messageIdToFetch,
+			format: "full",
+		});
+
+		const headers = msg.data.payload?.headers || [];
+		const getHeader = (name: string): string =>
+			headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+
+		const from = getHeader("From");
+		const to = parseEmailList(getHeader("To"));
+		const cc = parseEmailList(getHeader("Cc"));
+		const subject = getHeader("Subject");
+		const date = getHeader("Date");
+		const rfc822MessageId = getHeader("Message-ID");
+		const existingRefs = getHeader("References");
+
+		// Build references: existing References + Message-ID
+		const references = existingRefs ? `${existingRefs} ${rfc822MessageId}` : rfc822MessageId;
+
+		// Decode body from payload
+		const body = this.decodeMessageBody(msg.data.payload);
+		const htmlBody = this.decodeHtmlBody(msg.data.payload);
+
+		return {
+			messageId: msg.data.id || "",
+			threadId: msg.data.threadId || "",
+			from,
+			to,
+			cc,
+			subject,
+			date,
+			body,
+			htmlBody,
+			inReplyTo: rfc822MessageId,
+			references,
+		};
+	}
+
+	private decodeMessageBody(payload: any): string {
+		if (!payload) return "";
+		if (payload.body?.data) {
+			return Buffer.from(payload.body.data, "base64url").toString();
+		}
+		if (payload.parts) {
+			for (const part of payload.parts) {
+				if (part.mimeType === "text/plain" && part.body?.data) {
+					return Buffer.from(part.body.data, "base64url").toString();
+				}
+			}
+			for (const part of payload.parts) {
+				const nested = this.decodeMessageBody(part);
+				if (nested) return nested;
+			}
+		}
+		return "";
+	}
+
+	private decodeHtmlBody(payload: any): string {
+		if (!payload) return "";
+		if (payload.body?.data && payload.mimeType === "text/html") {
+			return Buffer.from(payload.body.data, "base64url").toString();
+		}
+		if (payload.parts) {
+			for (const part of payload.parts) {
+				if (part.mimeType === "text/html" && part.body?.data) {
+					return Buffer.from(part.body.data, "base64url").toString();
+				}
+			}
+			for (const part of payload.parts) {
+				const nested = this.decodeHtmlBody(part);
+				if (nested) return nested;
+			}
+		}
+		return "";
+	}
+
 	async deleteDraft(email: string, draftId: string): Promise<void> {
 		const gmail = this.getGmailClient(email);
 		await gmail.users.drafts.delete({ userId: "me", id: draftId });
@@ -504,7 +696,8 @@ export class GmailService {
 			userId: "me",
 			requestBody: { id: draftId },
 		});
-		return response.data.message!;
+		// Gmail API returns the sent Message directly in response.data
+		return response.data;
 	}
 
 	async sendMessage(
@@ -512,48 +705,85 @@ export class GmailService {
 		to: string[],
 		subject: string,
 		body: string,
-		options: { cc?: string[]; bcc?: string[]; replyToMessageId?: string; attachments?: string[] } = {},
+		options: {
+			cc?: string[];
+			bcc?: string[];
+			replyToMessageId?: string;
+			attachments?: string[];
+			replyAll?: boolean;
+			includeQuote?: boolean;
+		} = {},
 	): Promise<GmailMessage> {
 		const gmail = this.getGmailClient(email);
 
 		let inReplyTo: string | undefined;
 		let references: string | undefined;
 		let threadId: string | undefined;
+		let replyData: Awaited<ReturnType<typeof this.getMessageForReply>> | undefined;
+		const originalBody = body; // Keep original reply text for HTML generation
 
-		// If replying to a specific message, fetch its headers
+		// Use local variables to avoid parameter reassignment
+		let recipientList = to;
+		let subjectLine = subject;
+		let bodyText = body;
+
+		// If replying to a specific message, use getMessageForReply for auto-fill
 		if (options.replyToMessageId) {
-			const msg = await gmail.users.messages.get({
-				userId: "me",
-				id: options.replyToMessageId,
-				format: "metadata",
-				metadataHeaders: ["Message-ID", "References"],
-			});
-			const headers = msg.data.payload?.headers || [];
-			const messageId = headers.find((h: any) => h.name === "Message-ID")?.value;
-			const existingRefs = headers.find((h: any) => h.name === "References")?.value;
+			replyData = await this.getMessageForReply(email, options.replyToMessageId);
 
-			if (messageId) {
-				inReplyTo = messageId;
-				references = existingRefs ? `${existingRefs} ${messageId}` : messageId;
+			// Auto-fill To if not provided
+			if (!recipientList || recipientList.length === 0 || (recipientList.length === 1 && !recipientList[0])) {
+				const senderEmail = parseEmailAddress(replyData.from).email;
+				recipientList = [senderEmail];
+
+				if (options.replyAll) {
+					// Add original To + Cc (minus self) to Cc
+					const allRecipients = [...replyData.to, ...replyData.cc];
+					const filtered = filterSelfFromRecipients(allRecipients, email);
+					options.cc = [...(options.cc || []), ...filtered];
+				}
 			}
-			threadId = msg.data.threadId || undefined;
+
+			// Auto-fill subject if not provided
+			if (!subjectLine) {
+				subjectLine = formatReplySubject(replyData.subject);
+			}
+
+			// Append quoted text to plain text body if includeQuote !== false
+			if (options.includeQuote !== false) {
+				bodyText = bodyText + formatGmailQuote(replyData.date, replyData.from, replyData.body);
+			}
+
+			inReplyTo = replyData.inReplyTo;
+			references = replyData.references;
+			threadId = replyData.threadId;
 		}
 
 		const hasAttachments = options.attachments && options.attachments.length > 0;
+		const hasHtmlQuote = replyData && options.includeQuote !== false;
 		const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+		const altBoundary = `alt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+		// Determine content type based on attachments and HTML quote
+		let contentType: string;
+		if (hasAttachments) {
+			contentType = `multipart/mixed; boundary="${boundary}"`;
+		} else if (hasHtmlQuote) {
+			contentType = `multipart/alternative; boundary="${altBoundary}"`;
+		} else {
+			contentType = "text/plain; charset=UTF-8";
+		}
 
 		const headers = [
 			`From: ${email}`,
-			`To: ${to.join(", ")}`,
+			`To: ${recipientList.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${subjectLine}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
-			hasAttachments
-				? `Content-Type: multipart/mixed; boundary="${boundary}"`
-				: "Content-Type: text/plain; charset=UTF-8",
+			`Content-Type: ${contentType}`,
 		].filter(Boolean);
 
 		let emailContent: string;
@@ -561,8 +791,30 @@ export class GmailService {
 		if (hasAttachments) {
 			const parts: string[] = [];
 
-			// Text body part
-			parts.push(`--${boundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + body);
+			if (hasHtmlQuote) {
+				// Multipart/alternative inside multipart/mixed
+				const htmlBody = formatHtmlReplyBody(
+					originalBody,
+					replyData!.date,
+					replyData!.from,
+					replyData!.body,
+					replyData!.htmlBody,
+				);
+				parts.push(
+					`--${boundary}\r\n` +
+						`Content-Type: multipart/alternative; boundary="${altBoundary}"\r\n\r\n` +
+						`--${altBoundary}\r\n` +
+						"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
+						bodyText +
+						`\r\n--${altBoundary}\r\n` +
+						"Content-Type: text/html; charset=UTF-8\r\n\r\n" +
+						htmlBody +
+						`\r\n--${altBoundary}--`,
+				);
+			} else {
+				// Text body part only
+				parts.push(`--${boundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + bodyText);
+			}
 
 			// Attachment parts
 			for (const filePath of options.attachments!) {
@@ -581,8 +833,22 @@ export class GmailService {
 			}
 
 			emailContent = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n") + `\r\n--${boundary}--`;
+		} else if (hasHtmlQuote) {
+			// Multipart/alternative with text and HTML
+			const htmlBody = formatHtmlReplyBody(
+				originalBody,
+				replyData!.date,
+				replyData!.from,
+				replyData!.body,
+				replyData!.htmlBody,
+			);
+			const parts = [
+				`--${altBoundary}\r\n` + "Content-Type: text/plain; charset=UTF-8\r\n\r\n" + bodyText,
+				`--${altBoundary}\r\n` + "Content-Type: text/html; charset=UTF-8\r\n\r\n" + htmlBody,
+			];
+			emailContent = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n") + `\r\n--${altBoundary}--`;
 		} else {
-			emailContent = headers.join("\r\n") + "\r\n\r\n" + body;
+			emailContent = headers.join("\r\n") + "\r\n\r\n" + bodyText;
 		}
 
 		const encodedEmail = Buffer.from(emailContent).toString("base64url");

@@ -1,19 +1,23 @@
 {
-	"name": "@mariozechner/gmcli",
-	"version": "0.1.0",
-	"description": "Minimal Gmail CLI",
+	"name": "@willtmc/gmcli",
+	"version": "0.2.0",
+	"description": "Minimal Gmail CLI (fork with bug fixes)",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/willtmc/gmcli.git"
+	},
 	"type": "module",
 	"bin": {
 		"gmcli": "dist/cli.js"
 	},
 	"main": "./dist/gmail-service.js",
 	"types": "./dist/gmail-service.d.ts",
-	"files": [
-		"dist"
-	],
+	"files": ["dist"],
 	"scripts": {
 		"build": "tsc && chmod +x dist/cli.js",
 		"check": "biome check src/ --write --diagnostic-level=error && tsgo --noEmit",
+		"test": "vitest",
+		"test:run": "vitest run",
 		"prepublishOnly": "npm run build",
 		"prepare": "husky"
 	},
@@ -26,13 +30,10 @@
 		"@types/node": "^22.10.1",
 		"@typescript/native-preview": "^7.0.0-dev.20251204.1",
 		"husky": "^9.1.7",
-		"typescript": "^5.7.2"
+		"typescript": "^5.7.2",
+		"vitest": "^3.0.0"
 	},
-	"keywords": [
-		"gmail",
-		"email",
-		"cli"
-	],
+	"keywords": ["gmail", "email", "cli"],
 	"author": "",
 	"license": "MIT",
 	"engines": {

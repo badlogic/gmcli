@@ -1,8 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+Fork of @mariozechner/gmcli with bug fixes.
+
+### Fixed
+- `--reply-to` now accepts both thread IDs and message IDs. Previously it only worked with message IDs, but `search` returns thread IDs. Now automatically detects thread IDs and fetches the last message in the thread for proper reply threading.
+- `drafts send` no longer crashes with "Cannot read property 'id' of undefined". Fixed response handling from Gmail API.
+
+### Changed
+- Published as `@willtmc/gmcli` (fork of `@mariozechner/gmcli`)
+
 ## 0.1.0
 
-Initial release.
+Initial release (original author: Mario Zechner).
 
 - Account management (add, remove, list)
   - `--manual` flag for browserless OAuth (paste redirect URL)

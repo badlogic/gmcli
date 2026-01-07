@@ -65,16 +65,26 @@ GMAIL COMMANDS
   gmcli <email> drafts create --to <emails> --subject <s> --body <b> [options]
       Create a new draft.
 
+  gmcli <email> drafts create --reply-to <id> --body <b> [--all] [--no-quote]
+      Reply to a message. Auto-fills To, Subject, and quoted text.
+      --all: Reply to all recipients (sender + To + Cc)
+      --no-quote: Don't include quoted original message
+
   gmcli <email> send --to <emails> --subject <s> --body <b> [options]
       Send an email directly.
 
+  gmcli <email> send --reply-to <id> --body <b> [--all] [--no-quote]
+      Reply and send immediately. Auto-fills To, Subject, and quoted text.
+
       Options for drafts create / send:
-        --to <emails>           Recipients (comma-separated, required)
-        --subject <s>           Subject line (required)
+        --to <emails>           Recipients (comma-separated, required unless replying)
+        --subject <s>           Subject line (required unless replying)
         --body <b>              Message body (required)
         --cc <emails>           CC recipients (comma-separated)
         --bcc <emails>          BCC recipients (comma-separated)
-        --reply-to <messageId>  Reply to message (sets headers and thread)
+        --reply-to <id>         Reply to message/thread (sets headers, auto-fills To/Subject)
+        --all                   Reply to all recipients (use with --reply-to)
+        --no-quote              Don't include quoted original message
         --attach <file>         Attach file (use multiple times for multiple files)
 
   gmcli <email> url <threadIds...>
@@ -91,6 +101,8 @@ EXAMPLES
   gmcli you@gmail.com labels list
   gmcli you@gmail.com labels abc123 --add Work --remove UNREAD
   gmcli you@gmail.com drafts create --to a@x.com --subject "Hi" --body "Hello"
+  gmcli you@gmail.com drafts create --reply-to 19aea1f2f3532db5 --body "Thanks!"
+  gmcli you@gmail.com drafts create --reply-to 19aea1f2f3532db5 --body "Reply" --all
   gmcli you@gmail.com drafts send r1234567890
   gmcli you@gmail.com send --to a@x.com --subject "Hi" --body "Hello"
   gmcli you@gmail.com send --to a@x.com --subject "Re: Topic" \\
@@ -230,14 +242,14 @@ async function handleSearch(account: string, args: string[]) {
 	if (results.threads.length === 0) {
 		console.log("No results");
 	} else {
-		console.log("ID\tDATE\tFROM\tSUBJECT\tLABELS");
+		console.log("THREAD_ID\tMESSAGE_ID\tDATE\tFROM\tSUBJECT\tLABELS");
 		for (const t of results.threads) {
-			const msg = t.messages[0];
+			const msg = t.messages.at(-1);
 			const date = msg?.date ? new Date(msg.date).toISOString().slice(0, 16).replace("T", " ") : "";
 			const from = msg?.from?.replace(/\t/g, " ") || "";
 			const subject = msg?.subject?.replace(/\t/g, " ") || "(no subject)";
 			const labels = msg?.labelIds?.map((id) => idToName.get(id) || id).join(",") || "";
-			console.log(`${t.id}\t${date}\t${from}\t${subject}\t${labels}`);
+			console.log(`${t.id}\t${msg?.id || ""}\t${date}\t${from}\t${subject}\t${labels}`);
 		}
 		if (results.nextPageToken) {
 			console.log(`\n# Next page: --page ${results.nextPageToken}`);
@@ -461,18 +473,36 @@ async function handleDrafts(account: string, args: string[]) {
 					thread: { type: "string" },
 					"reply-to": { type: "string" },
 					attach: { type: "string", multiple: true },
+					all: { type: "boolean" },
+					"no-quote": { type: "boolean" },
 				},
 			});
-			if (!values.to || !values.subject || !values.body) {
-				error("Usage: <email> drafts create --to <emails> --subject <subj> --body <body>");
+			if (!values["reply-to"]) {
+				// Not a reply - require to, subject, body
+				if (!values.to || !values.subject || !values.body) {
+					error("Usage: <email> drafts create --to <emails> --subject <subj> --body <body>");
+				}
+			} else {
+				// Reply mode - only body is required
+				if (!values.body) {
+					error("Usage for reply: <email> drafts create --reply-to <id> --body <body> [--all] [--no-quote]");
+				}
 			}
-			const draft = await service.createDraft(account, values.to.split(","), values.subject, values.body, {
-				cc: values.cc?.split(","),
-				bcc: values.bcc?.split(","),
-				threadId: values.thread,
-				replyToMessageId: values["reply-to"],
-				attachments: values.attach,
-			});
+			const draft = await service.createDraft(
+				account,
+				values.to?.split(",") || [],
+				values.subject || "",
+				values.body,
+				{
+					cc: values.cc?.split(","),
+					bcc: values.bcc?.split(","),
+					threadId: values.thread,
+					replyToMessageId: values["reply-to"],
+					attachments: values.attach,
+					replyAll: values.all,
+					includeQuote: !values["no-quote"],
+				},
+			);
 			console.log(`Draft created: ${draft.id}`);
 			break;
 		}
@@ -492,18 +522,28 @@ async function handleSend(account: string, args: string[]) {
 			body: { type: "string" },
 			"reply-to": { type: "string" },
 			attach: { type: "string", multiple: true },
+			all: { type: "boolean" },
+			"no-quote": { type: "boolean" },
 		},
 	});
 
-	if (!values.to || !values.subject || !values.body) {
-		error("Usage: <email> send --to <emails> --subject <subj> --body <body>");
+	if (!values["reply-to"]) {
+		if (!values.to || !values.subject || !values.body) {
+			error("Usage: <email> send --to <emails> --subject <subj> --body <body>");
+		}
+	} else {
+		if (!values.body) {
+			error("Usage for reply: <email> send --reply-to <id> --body <body> [--all] [--no-quote]");
+		}
 	}
 
-	const msg = await service.sendMessage(account, values.to.split(","), values.subject, values.body, {
+	const msg = await service.sendMessage(account, values.to?.split(",") || [], values.subject || "", values.body, {
 		cc: values.cc?.split(","),
 		bcc: values.bcc?.split(","),
 		replyToMessageId: values["reply-to"],
 		attachments: values.attach,
+		replyAll: values.all,
+		includeQuote: !values["no-quote"],
 	});
 	console.log(`Sent: ${msg.id}`);
 }
