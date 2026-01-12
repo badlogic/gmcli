@@ -6,6 +6,7 @@ import type { EmailAccount } from "./types.js";
 const CONFIG_DIR = path.join(os.homedir(), ".gmcli");
 const ACCOUNTS_FILE = path.join(CONFIG_DIR, "accounts.json");
 const CREDENTIALS_FILE = path.join(CONFIG_DIR, "credentials.json");
+const DEFAULT_FILE = path.join(CONFIG_DIR, "default.json");
 
 export class AccountStorage {
 	private accounts: Map<string, EmailAccount> = new Map();
@@ -71,6 +72,26 @@ export class AccountStorage {
 			return JSON.parse(fs.readFileSync(CREDENTIALS_FILE, "utf8"));
 		} catch {
 			return null;
+		}
+	}
+
+	setDefaultEmail(email: string): void {
+		fs.writeFileSync(DEFAULT_FILE, JSON.stringify({ email }, null, 2));
+	}
+
+	getDefaultEmail(): string | null {
+		if (!fs.existsSync(DEFAULT_FILE)) return null;
+		try {
+			const data = JSON.parse(fs.readFileSync(DEFAULT_FILE, "utf8"));
+			return typeof data.email === "string" ? data.email : null;
+		} catch {
+			return null;
+		}
+	}
+
+	clearDefaultEmail(): void {
+		if (fs.existsSync(DEFAULT_FILE)) {
+			fs.unlinkSync(DEFAULT_FILE);
 		}
 	}
 }
