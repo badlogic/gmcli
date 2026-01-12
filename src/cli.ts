@@ -31,6 +31,7 @@ ACCOUNT COMMANDS
 GMAIL COMMANDS
 
   gmcli <email> search <query> [--max N] [--page TOKEN]
+  gmcli search <query> [--max N] [--page TOKEN]
       Search threads using Gmail query syntax.
       Returns: thread ID, date, sender, subject, labels.
 
@@ -44,11 +45,19 @@ GMAIL COMMANDS
         Combine: "in:inbox is:unread from:boss@company.com"
 
   gmcli <email> thread <threadId> [--download]
+  gmcli thread <threadId> [--download]
       Get thread with all messages.
       Shows: Message-ID, headers, body, attachments.
       --download saves attachments to ~/.gmcli/attachments/
 
+  gmcli <email> setdefault
+      Set default account for Gmail commands.
+
+  gmcli setdefault
+      Clear default account.
+
   gmcli <email> labels list
+  gmcli labels list
       List all labels with ID, name, and type.
 
   gmcli <email> labels <threadIds...> [--add L] [--remove L]
@@ -57,22 +66,28 @@ GMAIL COMMANDS
       System labels: INBOX, UNREAD, STARRED, IMPORTANT, TRASH, SPAM
 
   gmcli <email> drafts list
+  gmcli drafts list
       List all drafts. Returns: draft ID, message ID.
 
   gmcli <email> drafts get <draftId> [--download]
+  gmcli drafts get <draftId> [--download]
       View draft with attachments.
       --download saves attachments to ~/.gmcli/attachments/
 
   gmcli <email> drafts delete <draftId>
+  gmcli drafts delete <draftId>
       Delete a draft.
 
   gmcli <email> drafts send <draftId>
+  gmcli drafts send <draftId>
       Send a draft.
 
   gmcli <email> drafts create --to <emails> --subject <s> --body <b> [options]
+  gmcli drafts create --to <emails> --subject <s> --body <b> [options]
       Create a new draft.
 
   gmcli <email> send --to <emails> --subject <s> --body <b> [options]
+  gmcli send --to <emails> --subject <s> --body <b> [options]
       Send an email directly.
 
       Options for drafts create / send:
@@ -85,29 +100,32 @@ GMAIL COMMANDS
         --attach <file>         Attach file (use multiple times for multiple files)
 
   gmcli <email> url <threadIds...>
+  gmcli url <threadIds...>
       Generate Gmail web URLs for threads.
       Uses canonical URL format with email parameter.
 
 EXAMPLES
 
   gmcli accounts list
-  gmcli you@gmail.com search "in:inbox is:unread"
-  gmcli you@gmail.com search "from:boss@company.com" --max 50
-  gmcli you@gmail.com thread 19aea1f2f3532db5
-  gmcli you@gmail.com thread 19aea1f2f3532db5 --download
-  gmcli you@gmail.com labels list
-  gmcli you@gmail.com labels abc123 --add Work --remove UNREAD
-  gmcli you@gmail.com drafts create --to a@x.com --subject "Hi" --body "Hello"
-  gmcli you@gmail.com drafts send r1234567890
-  gmcli you@gmail.com send --to a@x.com --subject "Hi" --body "Hello"
-  gmcli you@gmail.com send --to a@x.com --subject "Re: Topic" \\
+  gmcli you@gmail.com setdefault
+  gmcli search "in:inbox is:unread"
+  gmcli search "from:boss@company.com" --max 50
+  gmcli thread 19aea1f2f3532db5
+  gmcli thread 19aea1f2f3532db5 --download
+  gmcli labels list
+  gmcli labels abc123 --add Work --remove UNREAD
+  gmcli drafts create --to a@x.com --subject "Hi" --body "Hello"
+  gmcli drafts send r1234567890
+  gmcli send --to a@x.com --subject "Hi" --body "Hello"
+  gmcli send --to a@x.com --subject "Re: Topic" \\
       --body "Reply text" --reply-to 19aea1f2f3532db5 --attach file.pdf
-  gmcli you@gmail.com url 19aea1f2f3532db5 19aea1f2f3532db6
+  gmcli url 19aea1f2f3532db5 19aea1f2f3532db6
 
 DATA STORAGE
 
   ~/.gmcli/credentials.json   OAuth client credentials
   ~/.gmcli/accounts.json      Account tokens
+  ~/.gmcli/default.json       Default account
   ~/.gmcli/attachments/       Downloaded attachments`);
 	process.exit(1);
 }
@@ -123,7 +141,6 @@ async function main() {
 		usage();
 	}
 
-	// Check for global --json flag
 	jsonOutput = args.includes("--json");
 	const filteredArgs = args.filter((a) => a !== "--json");
 
@@ -131,19 +148,30 @@ async function main() {
 	const rest = filteredArgs.slice(1);
 
 	try {
-		// Handle 'accounts' command separately (no email required)
 		if (first === "accounts") {
 			await handleAccounts(rest);
 			return;
 		}
 
-		// All other commands: first arg is email, second is command
-		const account = first;
-		const command = rest[0];
-		const commandArgs = rest.slice(1);
+		const commandNames = new Set(["search", "thread", "labels", "drafts", "send", "url", "setdefault"]);
+		const firstIsCommand = commandNames.has(first);
+
+		const account = firstIsCommand ? service.getDefaultEmail() : first;
+		const command = firstIsCommand ? first : rest[0];
+		const commandArgs = firstIsCommand ? rest : rest.slice(1);
 
 		if (!command) {
 			error("Missing command. Use --help for usage.");
+		}
+
+		if (command === "setdefault" && firstIsCommand) {
+			service.clearDefaultEmail();
+			console.log("Default account cleared");
+			return;
+		}
+
+		if (!account) {
+			error("No default account set. Run: gmcli you@gmail.com setdefault");
 		}
 
 		switch (command) {
@@ -164,6 +192,10 @@ async function main() {
 				break;
 			case "url":
 				handleUrl(account, commandArgs);
+				break;
+			case "setdefault":
+				service.setDefaultEmail(account);
+				console.log(`Default account set to ${account}`);
 				break;
 			default:
 				error(`Unknown command: ${command}`);

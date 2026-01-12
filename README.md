@@ -26,6 +26,8 @@ Then:
 ```bash
 gmcli accounts credentials ~/path/to/credentials.json
 gmcli accounts add you@gmail.com
+gmcli you@gmail.com setdefault
+gmcli setdefault
 ```
 
 ## Usage
@@ -33,6 +35,7 @@ gmcli accounts add you@gmail.com
 ```
 gmcli accounts <action>                Account management
 gmcli <email> <command> [options]      Gmail operations
+gmcli <command> [options]              Gmail operations using default
 ```
 
 ## Commands
@@ -45,6 +48,16 @@ gmcli accounts list                      # List configured accounts
 gmcli accounts add <email>               # Add account (opens browser)
 gmcli accounts add <email> --manual      # Add account (browserless, paste redirect URL)
 gmcli accounts remove <email>            # Remove account
+gmcli <email> setdefault                 # Set default account
+```
+
+### setdefault
+
+Set or clear the default email address so Gmail commands can omit the account.
+
+```bash
+gmcli <email> setdefault
+gmcli setdefault
 ```
 
 ### search
@@ -53,6 +66,7 @@ Search threads using Gmail query syntax. Returns thread ID, date, sender, subjec
 
 ```bash
 gmcli <email> search <query> [--max N] [--page TOKEN]
+gmcli search <query> [--max N] [--page TOKEN]
 ```
 
 Query examples:
@@ -67,9 +81,9 @@ Query examples:
 
 Examples:
 ```bash
-gmcli you@gmail.com search "in:inbox"
-gmcli you@gmail.com search "is:unread" --max 50
-gmcli you@gmail.com search "from:someone@example.com has:attachment"
+gmcli search "in:inbox"
+gmcli search "is:unread" --max 50
+gmcli search "from:someone@example.com has:attachment"
 ```
 
 ### thread
@@ -79,6 +93,7 @@ Get a thread with all messages. Shows Message-ID, headers, body, and attachments
 ```bash
 gmcli <email> thread <threadId>              # View thread
 gmcli <email> thread <threadId> --download   # Download attachments
+gmcli thread <threadId>                      # View thread (default account)
 ```
 
 Attachments are saved to `~/.gmcli/attachments/`.
@@ -88,6 +103,7 @@ Attachments are saved to `~/.gmcli/attachments/`.
 ```bash
 gmcli <email> labels list                              # List all labels (ID, name, type)
 gmcli <email> labels <threadIds...> [--add L] [--remove L]  # Modify labels on threads
+gmcli labels list                                      # List labels (default account)
 ```
 
 You can use label names or IDs when modifying (names are case-insensitive).
@@ -96,10 +112,10 @@ System labels: `INBOX`, `UNREAD`, `STARRED`, `IMPORTANT`, `TRASH`, `SPAM`
 
 Examples:
 ```bash
-gmcli you@gmail.com labels list
-gmcli you@gmail.com labels abc123 --remove UNREAD
-gmcli you@gmail.com labels abc123 --add Work --remove INBOX
-gmcli you@gmail.com labels abc123 def456 --add STARRED
+gmcli labels list
+gmcli labels abc123 --remove UNREAD
+gmcli labels abc123 --add Work --remove INBOX
+gmcli labels abc123 def456 --add STARRED
 ```
 
 ### drafts
@@ -112,6 +128,7 @@ gmcli <email> drafts delete <draftId>          # Delete draft
 gmcli <email> drafts send <draftId>            # Send draft
 
 gmcli <email> drafts create --to <emails> --subject <s> --body <b> [options]
+gmcli drafts list                              # List drafts (default account)
 ```
 
 ### send
@@ -120,6 +137,7 @@ Send an email directly.
 
 ```bash
 gmcli <email> send --to <emails> --subject <s> --body <b> [options]
+gmcli send --to <emails> --subject <s> --body <b> [options]
 ```
 
 Options for `drafts create` and `send`:
@@ -134,20 +152,20 @@ Options for `drafts create` and `send`:
 Examples:
 ```bash
 # Create draft
-gmcli you@gmail.com drafts create --to a@x.com --subject "Hi" --body "Hello"
+gmcli drafts create --to a@x.com --subject "Hi" --body "Hello"
 
 # Create reply draft
-gmcli you@gmail.com drafts create --to a@x.com --subject "Re: Topic" \
+gmcli drafts create --to a@x.com --subject "Re: Topic" \
     --body "My reply" --reply-to 19aea1f2f3532db5
 
 # Send draft
-gmcli you@gmail.com drafts send r1234567890
+gmcli drafts send r1234567890
 
 # Send directly
-gmcli you@gmail.com send --to a@x.com --subject "Hi" --body "Hello"
+gmcli send --to a@x.com --subject "Hi" --body "Hello"
 
 # Send reply with attachment
-gmcli you@gmail.com send --to a@x.com --subject "Re: Topic" \
+gmcli send --to a@x.com --subject "Re: Topic" \
     --body "See attached" --reply-to 19aea1f2f3532db5 --attach doc.pdf
 ```
 
@@ -157,11 +175,12 @@ Generate Gmail web URLs for threads. Uses canonical URL format with email parame
 
 ```bash
 gmcli <email> url <threadIds...>
+gmcli url <threadIds...>
 ```
 
 Example:
 ```bash
-gmcli you@gmail.com url 19aea1f2f3532db5 19aea1f2f3532db6
+gmcli url 19aea1f2f3532db5 19aea1f2f3532db6
 ```
 
 ## Data Storage
@@ -169,6 +188,7 @@ gmcli you@gmail.com url 19aea1f2f3532db5 19aea1f2f3532db6
 All data is stored in `~/.gmcli/`:
 - `credentials.json` - OAuth client credentials
 - `accounts.json` - Account tokens
+- `default.json` - Default account
 - `attachments/` - Downloaded attachments
 
 ## Development

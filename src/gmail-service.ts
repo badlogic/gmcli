@@ -92,6 +92,21 @@ export class GmailService {
 		return this.accountStorage.getCredentials();
 	}
 
+	setDefaultEmail(email: string): void {
+		if (!this.accountStorage.hasAccount(email)) {
+			throw new Error(`Account '${email}' not found`);
+		}
+		this.accountStorage.setDefaultEmail(email);
+	}
+
+	getDefaultEmail(): string | null {
+		return this.accountStorage.getDefaultEmail();
+	}
+
+	clearDefaultEmail(): void {
+		this.accountStorage.clearDefaultEmail();
+	}
+
 	private getGmailClient(email: string): any {
 		if (!this.gmailClients.has(email)) {
 			const account = this.accountStorage.getAccount(email);
