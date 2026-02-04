@@ -43,10 +43,11 @@ GMAIL COMMANDS
         label:Work, label:UNREAD
         Combine: "in:inbox is:unread from:boss@company.com"
 
-  gmcli <email> thread <threadId> [--download]
+  gmcli <email> thread <threadId> [--download] [--eml]
       Get thread with all messages.
       Shows: Message-ID, headers, body, attachments.
       --download saves attachments to ~/.gmcli/attachments/
+      --eml exports all messages as .eml files to ~/.gmcli/eml/
 
   gmcli <email> labels list
       List all labels with ID, name, and type.
@@ -266,10 +267,25 @@ async function handleSearch(account: string, args: string[]) {
 
 async function handleThread(account: string, args: string[]) {
 	const download = args.includes("--download");
-	const filtered = args.filter((a) => a !== "--download");
+	const eml = args.includes("--eml");
+	const filtered = args.filter((a) => a !== "--download" && a !== "--eml");
 	const threadId = filtered[0];
 
-	if (!threadId) error("Usage: <email> thread <threadId>");
+	if (!threadId) error("Usage: <email> thread <threadId> [--download] [--eml]");
+
+	// Handle --eml export
+	if (eml) {
+		const results = await service.exportThreadEml(account, threadId);
+		if (jsonOutput) {
+			console.log(JSON.stringify(results));
+		} else {
+			console.log("MESSAGE_ID\tFILENAME\tPATH\tSIZE");
+			for (const r of results) {
+				console.log(`${r.messageId}\t${r.filename}\t${r.path}\t${r.size}`);
+			}
+		}
+		return;
+	}
 
 	const result = await service.getThread(account, threadId, download);
 

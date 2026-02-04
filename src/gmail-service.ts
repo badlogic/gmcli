@@ -227,6 +227,48 @@ export class GmailService {
 		return downloadedAttachments;
 	}
 
+	async getMessageRaw(email: string, messageId: string): Promise<Buffer> {
+		const gmail = this.getGmailClient(email);
+		const response = await gmail.users.messages.get({
+			userId: "me",
+			id: messageId,
+			format: "raw",
+		});
+		if (!response.data.raw) {
+			throw new Error("No raw data in message");
+		}
+		return Buffer.from(response.data.raw, "base64url");
+	}
+
+	async exportThreadEml(
+		email: string,
+		threadId: string,
+		outputDir?: string,
+	): Promise<Array<{ messageId: string; filename: string; path: string; size: number }>> {
+		const gmail = this.getGmailClient(email);
+		const response = await gmail.users.threads.get({
+			userId: "me",
+			id: threadId,
+		});
+		const thread = response.data;
+		const emlDir = outputDir || path.join(os.homedir(), ".gmcli", "eml");
+		if (!fs.existsSync(emlDir)) {
+			fs.mkdirSync(emlDir, { recursive: true });
+		}
+		const results: Array<{ messageId: string; filename: string; path: string; size: number }> = [];
+		for (const message of thread.messages || []) {
+			const raw = await this.getMessageRaw(email, message.id!);
+			const headers = message.payload?.headers || [];
+			const subject = headers.find((h: any) => h.name?.toLowerCase() === "subject")?.value || "no-subject";
+			const safeSubject = subject.replace(/[^a-zA-Z0-9-_]/g, "_").substring(0, 50);
+			const filename = `${message.id}_${safeSubject}.eml`;
+			const filePath = path.join(emlDir, filename);
+			fs.writeFileSync(filePath, raw);
+			results.push({ messageId: message.id!, filename, path: filePath, size: raw.length });
+		}
+		return results;
+	}
+
 	async downloadAttachments(
 		email: string,
 		attachments: Array<{ messageId: string; attachmentId: string; filename: string }>,
@@ -346,6 +388,15 @@ export class GmailService {
 		return labels.map((l) => nameToId.get(l.toLowerCase()) || l);
 	}
 
+	private encodeSubject(subject: string): string {
+		// Check if subject contains non-ASCII characters
+		if (!/^[\x00-\x7F]*$/.test(subject)) {
+			const encoded = Buffer.from(subject, "utf8").toString("base64");
+			return `=?UTF-8?B?${encoded}?=`;
+		}
+		return subject;
+	}
+
 	async createDraft(
 		email: string,
 		to: string[],
@@ -392,7 +443,7 @@ export class GmailService {
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${this.encodeSubject(subject)}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
@@ -547,7 +598,7 @@ export class GmailService {
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${this.encodeSubject(subject)}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
