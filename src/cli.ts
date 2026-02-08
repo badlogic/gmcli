@@ -48,6 +48,9 @@ GMAIL COMMANDS
       Shows: Message-ID, headers, body, attachments.
       --download saves attachments to ~/.gmcli/attachments/
 
+  gmcli <email> aliases
+      List configured "Send mail as" aliases.
+
   gmcli <email> labels list
       List all labels with ID, name, and type.
 
@@ -152,6 +155,9 @@ async function main() {
 				break;
 			case "thread":
 				await handleThread(account, commandArgs);
+				break;
+			case "aliases":
+				await handleAliases(account);
 				break;
 			case "labels":
 				await handleLabels(account, commandArgs);
@@ -312,6 +318,18 @@ async function handleThread(account: string, args: string[]) {
 			}
 			console.log("---");
 		}
+	}
+}
+
+async function handleAliases(account: string) {
+	const aliases = await service.listAliases(account);
+	if (jsonOutput) {
+		console.log(JSON.stringify(aliases));
+		return;
+	}
+	console.log("DEFAULT\tEMAIL\tNAME");
+	for (const a of aliases) {
+		console.log(`${a.isDefault ? "*" : " "}\t${a.sendAsEmail}\t${a.displayName || ""}`);
 	}
 }
 
@@ -477,6 +495,7 @@ async function handleDrafts(account: string, args: string[]) {
 			const { values } = parseArgs({
 				args: rest,
 				options: {
+					from: { type: "string" },
 					to: { type: "string" },
 					cc: { type: "string" },
 					bcc: { type: "string" },
@@ -491,6 +510,7 @@ async function handleDrafts(account: string, args: string[]) {
 				error("Usage: <email> drafts create --to <emails> --subject <subj> --body <body>");
 			}
 			const draft = await service.createDraft(account, values.to.split(","), values.subject, values.body, {
+				from: values.from,
 				cc: values.cc?.split(","),
 				bcc: values.bcc?.split(","),
 				threadId: values.thread,
@@ -509,6 +529,7 @@ async function handleSend(account: string, args: string[]) {
 	const { values } = parseArgs({
 		args,
 		options: {
+			from: { type: "string" },
 			to: { type: "string" },
 			cc: { type: "string" },
 			bcc: { type: "string" },
@@ -524,6 +545,7 @@ async function handleSend(account: string, args: string[]) {
 	}
 
 	const msg = await service.sendMessage(account, values.to.split(","), values.subject, values.body, {
+		from: values.from,
 		cc: values.cc?.split(","),
 		bcc: values.bcc?.split(","),
 		replyToMessageId: values["reply-to"],

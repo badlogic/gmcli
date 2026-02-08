@@ -83,6 +83,14 @@ gmcli <email> thread <threadId> --download   # Download attachments
 
 Attachments are saved to `~/.gmcli/attachments/`.
 
+### aliases
+
+List configured "Send mail as" aliases for the account.
+
+```bash
+gmcli <email> aliases
+```
+
 ### labels
 
 ```bash
@@ -126,6 +134,7 @@ Options for `drafts create` and `send`:
 - `--to <emails>` - Recipients (comma-separated, required)
 - `--subject <s>` - Subject line (required)
 - `--body <b>` - Message body (required)
+- `--from <email>` - Use a specific "Send mail as" alias
 - `--cc <emails>` - CC recipients (comma-separated)
 - `--bcc <emails>` - BCC recipients (comma-separated)
 - `--reply-to <messageId>` - Reply to message (sets In-Reply-To/References headers and thread)
@@ -136,6 +145,9 @@ Examples:
 # Create draft
 gmcli you@gmail.com drafts create --to a@x.com --subject "Hi" --body "Hello"
 
+# Create draft using an alias
+gmcli you@gmail.com drafts create --from me@work.com --to a@x.com --subject "Hi" --body "Hello"
+
 # Create reply draft
 gmcli you@gmail.com drafts create --to a@x.com --subject "Re: Topic" \
     --body "My reply" --reply-to 19aea1f2f3532db5
@@ -145,6 +157,9 @@ gmcli you@gmail.com drafts send r1234567890
 
 # Send directly
 gmcli you@gmail.com send --to a@x.com --subject "Hi" --body "Hello"
+
+# Send using an alias
+gmcli you@gmail.com send --from me@work.com --to a@x.com --subject "Hi" --body "Hello"
 
 # Send reply with attachment
 gmcli you@gmail.com send --to a@x.com --subject "Re: Topic" \

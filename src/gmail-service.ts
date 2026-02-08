@@ -331,6 +331,16 @@ export class GmailService {
 		}));
 	}
 
+	async listAliases(email: string): Promise<Array<{ sendAsEmail: string; isDefault: boolean; displayName?: string }>> {
+		const gmail = this.getGmailClient(email);
+		const response = await gmail.users.settings.sendAs.list({ userId: "me" });
+		return (response.data.sendAs || []).map((s: any) => ({
+			sendAsEmail: s.sendAsEmail || "",
+			isDefault: s.isDefault || false,
+			displayName: s.displayName,
+		}));
+	}
+
 	async getLabelMap(email: string): Promise<{ idToName: Map<string, string>; nameToId: Map<string, string> }> {
 		const labels = await this.listLabels(email);
 		const idToName = new Map<string, string>();
@@ -352,6 +362,7 @@ export class GmailService {
 		subject: string,
 		body: string,
 		options: {
+			from?: string;
 			cc?: string[];
 			bcc?: string[];
 			threadId?: string;
@@ -388,7 +399,7 @@ export class GmailService {
 		const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 		const headers = [
-			`From: ${email}`,
+			`From: ${options.from || email}`,
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
@@ -512,7 +523,7 @@ export class GmailService {
 		to: string[],
 		subject: string,
 		body: string,
-		options: { cc?: string[]; bcc?: string[]; replyToMessageId?: string; attachments?: string[] } = {},
+		options: { from?: string; cc?: string[]; bcc?: string[]; replyToMessageId?: string; attachments?: string[] } = {},
 	): Promise<GmailMessage> {
 		const gmail = this.getGmailClient(email);
 
@@ -543,7 +554,7 @@ export class GmailService {
 		const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 		const headers = [
-			`From: ${email}`,
+			`From: ${options.from || email}`,
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
