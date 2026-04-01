@@ -59,6 +59,17 @@ export class GmailService {
 	private accountStorage = new AccountStorage();
 	private gmailClients: Map<string, any> = new Map();
 
+	/**
+	 * Encode a header value per RFC 2047 if it contains non-ASCII characters.
+	 * Uses Base64 encoded-word syntax: =?UTF-8?B?<base64>?=
+	 */
+	private encodeHeaderValue(value: string): string {
+		if (/[^\x00-\x7F]/.test(value)) {
+			return `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
+		}
+		return value;
+	}
+
 	async addGmailAccount(email: string, clientId: string, clientSecret: string, manual = false): Promise<void> {
 		if (this.accountStorage.hasAccount(email)) {
 			throw new Error(`Account '${email}' already exists`);
@@ -392,7 +403,7 @@ export class GmailService {
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${this.encodeHeaderValue(subject)}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
@@ -547,7 +558,7 @@ export class GmailService {
 			`To: ${to.join(", ")}`,
 			options.cc?.length ? `Cc: ${options.cc.join(", ")}` : "",
 			options.bcc?.length ? `Bcc: ${options.bcc.join(", ")}` : "",
-			`Subject: ${subject}`,
+			`Subject: ${this.encodeHeaderValue(subject)}`,
 			inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
 			references ? `References: ${references}` : "",
 			"MIME-Version: 1.0",
