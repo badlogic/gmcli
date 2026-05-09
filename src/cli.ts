@@ -46,7 +46,7 @@ GMAIL COMMANDS
   gmcli <email> thread <threadId> [--download]
       Get thread with all messages.
       Shows: Message-ID, headers, body, attachments.
-      --download saves attachments to ~/.gmcli/attachments/
+      --download saves attachments to the gmcli user data directory.
 
   gmcli <email> labels list
       List all labels with ID, name, and type.
@@ -61,7 +61,7 @@ GMAIL COMMANDS
 
   gmcli <email> drafts get <draftId> [--download]
       View draft with attachments.
-      --download saves attachments to ~/.gmcli/attachments/
+      --download saves attachments to the gmcli user data directory.
 
   gmcli <email> drafts delete <draftId>
       Delete a draft.
@@ -106,9 +106,14 @@ EXAMPLES
 
 DATA STORAGE
 
-  ~/.gmcli/credentials.json   OAuth client credentials
-  ~/.gmcli/accounts.json      Account tokens
-  ~/.gmcli/attachments/       Downloaded attachments`);
+  Linux:
+    ~/.config/gmcli/credentials.json      OAuth client credentials
+    ~/.config/gmcli/accounts.json         Account tokens
+    ~/.local/share/gmcli/attachments/     Downloaded attachments
+
+  macOS uses the same XDG-style paths as Linux. Windows uses its platform-specific
+  application config/data directories. Legacy ~/.gmcli config is read as a fallback
+  and rewritten to the new location on changes.`);
 	process.exit(1);
 }
 

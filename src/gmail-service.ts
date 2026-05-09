@@ -1,10 +1,10 @@
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { OAuth2Client } from "google-auth-library";
 import { type gmail_v1, google } from "googleapis";
 import { AccountStorage } from "./account-storage.js";
 import { GmailOAuthFlow } from "./gmail-oauth-flow.js";
+import { getAttachmentsDir } from "./paths.js";
 import type { EmailAccount } from "./types.js";
 
 type GmailMessage = gmail_v1.Schema$Message;
@@ -234,7 +234,7 @@ export class GmailService {
 		const gmail = this.getGmailClient(email);
 		const results: AttachmentDownloadResult[] = [];
 
-		const attachmentDir = path.join(os.homedir(), ".gmcli", "attachments");
+		const attachmentDir = getAttachmentsDir();
 		if (!fs.existsSync(attachmentDir)) {
 			fs.mkdirSync(attachmentDir, { recursive: true });
 		}

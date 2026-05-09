@@ -81,7 +81,7 @@ gmcli <email> thread <threadId>              # View thread
 gmcli <email> thread <threadId> --download   # Download attachments
 ```
 
-Attachments are saved to `~/.gmcli/attachments/`.
+Attachments are saved to gmcli's user data directory (`~/.local/share/gmcli/attachments/` on Linux/MacOS).
 
 ### labels
 
@@ -166,10 +166,15 @@ gmcli you@gmail.com url 19aea1f2f3532db5 19aea1f2f3532db6
 
 ## Data Storage
 
-All data is stored in `~/.gmcli/`:
-- `credentials.json` - OAuth client credentials
-- `accounts.json` - Account tokens
-- `attachments/` - Downloaded attachments
+Gmcli follows OS-specific application directory conventions.
+
+On Linux/MacOs:
+- `~/.config/gmcli/credentials.json` - OAuth client credentials
+- `~/.config/gmcli/accounts.json` - Account tokens
+- `~/.local/share/gmcli/attachments/` - Downloaded attachments
+
+On macOS, gmcli uses the same XDG-style paths as Linux. On Windows, gmcli uses platform-specific application config/data directories.
+Legacy `~/.gmcli` config is read as a fallback and rewritten to the new location on changes.
 
 ## Development
 
